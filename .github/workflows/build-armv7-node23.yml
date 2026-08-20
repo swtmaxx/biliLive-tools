@@ -1,0 +1,63 @@
+name: Build CLI ARMv7 Node 23
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Enable ARM emulation
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - name: Build and package
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$RUNNER_TEMP/armv7-out"
+
+          docker run --rm --platform linux/arm/v7 \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -v "$RUNNER_TEMP/armv7-out:/out" \
+            -w /src \
+            node:23-bookworm \
+            bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates g++ make python3
+
+              corepack enable
+              corepack prepare pnpm@11.5.0 --activate
+
+              pnpm install --frozen-lockfile
+              pnpm run build:base
+              pnpm --filter bililive-cli run build
+              pnpm --filter bililive-cli run movePackage
+
+              node -e "const Database=require(\"./packages/CLI/lib/node_modules/better-sqlite3\"); new Database(\":memory:\"); console.log(\"better-sqlite3 OK\")"
+              node -e "require(\"./packages/CLI/lib/node_modules/@napi-rs/canvas\"); console.log(\"canvas OK\")"
+
+              test -f packages/CLI/lib/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+              test -f packages/CLI/lib/node_modules/@napi-rs/canvas-linux-arm-gnueabihf/skia.linux-arm-gnueabihf.node
+
+              tar -czf /out/biliLive-tools-node23-armv7.tar.gz \
+                -C packages/CLI lib package.json
+              sha256sum /out/biliLive-tools-node23-armv7.tar.gz | tee /out/SHA256SUMS
+            '
+
+      - name: Upload ARMv7 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: biliLive-tools-node23-armv7
+          path: |
+            ${{ runner.temp }}/armv7-out/biliLive-tools-node23-armv7.tar.gz
+            ${{ runner.temp }}/armv7-out/SHA256SUMS
