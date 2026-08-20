@@ -38,7 +38,17 @@ jobs:
               corepack enable
               corepack prepare pnpm@11.5.0 --activate
 
-              pnpm install --frozen-lockfile
+              # The workspace contains electron-winstaller, whose install hook
+              # only supports Windows packaging and fails on ARM Linux.
+              pnpm install --frozen-lockfile --ignore-scripts
+
+              SQLITE_DIR="$(find node_modules/.pnpm -maxdepth 1 -type d -name 'better-sqlite3@*' | head -n 1)"
+              test -n "$SQLITE_DIR"
+              cd "$SQLITE_DIR/node_modules/better-sqlite3"
+              npm_config_jobs=1 MAKEFLAGS=-j1 npm rebuild \
+                --build-from-source --foreground-scripts
+              cd /src
+
               pnpm run build:base
               pnpm --filter bililive-cli run build
               pnpm --filter bililive-cli run movePackage
